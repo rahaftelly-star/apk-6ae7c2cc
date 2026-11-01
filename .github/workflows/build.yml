@@ -54,7 +54,7 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          accept-sdk-license: true
+          accept-android-sdk-licenses: true
 
       - name: Install required Android SDK packages
         shell: bash
@@ -115,4 +115,3 @@ jobs:
           files: dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
