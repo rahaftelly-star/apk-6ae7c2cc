@@ -1,4 +1,4 @@
- 
+
 name: dispatchPK
 
 on:
@@ -85,7 +85,7 @@ jobs:
 
       # 4. Setup Android SDK
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
           accept-android-sdk-licenses: true
 
