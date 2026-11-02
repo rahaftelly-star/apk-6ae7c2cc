@@ -1,10 +1,9 @@
-plugins {
-    id 'com.android.application'
+namespacce   id 'com.android.application'
     id 'com.google.gms.google-services'
 }
 
 android {
-    namespace .com.aeman.haker
+    namespace com.aeman.haker
     compileSdk 35
 
     defaultConfig {
