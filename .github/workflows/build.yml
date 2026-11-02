@@ -1,35 +1,56 @@
+
 name: dispatchPK
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
-  GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.jvmargs="-Xmx3g -Dfile.encoding=UTF-8"
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8"
 
 jobs:
   build:
+    name: Build Android APK
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 40
 
     steps:
+      # 1. Download project
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # 2. Verify project files
       - name: Verify Android project files
         shell: bash
         run: |
           set -euo pipefail
-          test -f settings.gradle || { echo "settings.gradle missing"; exit 1; }
-          test -f build.gradle || { echo "project build.gradle missing"; exit 1; }
-          test -f app/build.gradle || { echo "app/build.gradle missing"; exit 1; }
-          test -f app/src/main/AndroidManifest.xml || { echo "AndroidManifest.xml missing"; exit 1; }
+
+          REQUIRED_FILES=(
+            "settings.gradle"
+            "build.gradle"
+            "app/build.gradle"
+            "app/src/main/AndroidManifest.xml"
+          )
+
+          for FILE in "${REQUIRED_FILES[@]}"; do
+            if [ ! -f "$FILE" ]; then
+              echo "::error::Missing file: $FILE"
+              exit 1
+            fi
+          done
+
           mkdir -p app/src/main/res/drawable
-          if ! ls app/src/main/res/drawable/app_icon.* >/dev/null 2>&1; then
+
+          if ! compgen -G "app/src/main/res/drawable/app_icon.*" > /dev/null; then
             cat > app/src/main/res/drawable/app_icon.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <vector xmlns:android="http://schemas.android.com/apk/res/android"
@@ -37,58 +58,159 @@ jobs:
               android:height="108dp"
               android:viewportWidth="108"
               android:viewportHeight="108">
-              <path android:fillColor="#4f46e5" android:pathData="M0,0h108v108h-108z"/>
-              <path android:fillColor="#ffffff" android:pathData="M24,24h60v60h-60z"/>
-              <path android:fillColor="#4f46e5" android:pathData="M32,32h44v44h-44z"/>
-              <path android:fillColor="#ffffff" android:pathData="M49,36h10v36h-10zM36,49h36v10h-36z"/>
+              <path
+                  android:fillColor="#4F46E5"
+                  android:pathData="M0,0h108v108h-108z"/>
+              <path
+                  android:fillColor="#FFFFFF"
+                  android:pathData="M24,24h60v60h-60z"/>
+              <path
+                  android:fillColor="#4F46E5"
+                  android:pathData="M32,32h44v44h-44z"/>
+              <path
+                  android:fillColor="#FFFFFF"
+                  android:pathData="M49,36h10v36h-10zM36,49h36v10h-36z"/>
           </vector>
           EOF
           fi
 
+          echo "Project verification completed."
+
+      # 3. Install Java
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
+          distribution: temurin
           java-version: '17'
-          distribution: 'temurin'
 
-      
-        
-        
-    
+      # 4. Setup Android SDK
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
 
-      - name: Install required Android SDK packages
+      # 5. Find SDK Manager and install packages
+      - name: Install Android SDK packages
         shell: bash
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+
+          if [ -z "$SDK_ROOT" ]; then
+            echo "::error::Android SDK location not found."
+            exit 1
+          fi
+
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" \
+              -type f -name sdkmanager -print -quit 2>/dev/null || true)"
+          fi
+
+          if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager was not found."
+            find "$SDK_ROOT" -maxdepth 4 -type f -name sdkmanager || true
+            exit 1
+          fi
+
+          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
+
+          "$SDKMANAGER" --install \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+          echo "Android SDK packages installed successfully."
+
+      # 6. Setup Gradle
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
 
+      # 7. Build Debug APK
       - name: Build Debug APK
         shell: bash
         run: |
           set -euo pipefail
-          gradle :app:assembleDebug --stacktrace --no-daemon
-          mkdir -p dist
-          APK_PATH="$(find app/build/outputs/apk/debug -type f -name '*.apk' | head -n 1)"
-          test -n "$APK_PATH" || { echo "Debug APK was not produced"; exit 1; }
-          cp "$APK_PATH" "dist/${{ github.event.repository.name }}-debug.apk"
 
-      - name: Build Release AAB (optional)
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+            GRADLE="./gradlew"
+          else
+            GRADLE="gradle"
+          fi
+
+          "$GRADLE" :app:assembleDebug \
+            --stacktrace \
+            --no-daemon
+
+          mkdir -p dist
+
+          APK_PATH="$(find app/build/outputs/apk/debug \
+            -type f -name '*.apk' -print -quit)"
+
+          if [ -z "$APK_PATH" ]; then
+            echo "::error::Debug APK was not generated."
+            exit 1
+          fi
+
+          cp "$APK_PATH" \
+            "dist/${{ github.event.repository.name }}-debug.apk"
+
+          echo "Debug APK generated successfully."
+
+      # 8. Build Release AAB
+      - name: Build Release AAB
         shell: bash
         continue-on-error: true
         run: |
-          gradle :app:bundleRelease --stacktrace --no-daemon
-          mkdir -p dist
-          AAB_PATH="$(find app/build/outputs/bundle/release -type f -name '*.aab' | head -n 1 || true)"
-          if [ -n "$AAB_PATH" ]; then
-            cp "$AAB_PATH" "dist/${{ github.event.repository.name }}-release.aab"
+          set -euo pipefail
+
+          if [ -f "./gradlew" ]; then
+            GRADLE="./gradlew"
+          else
+            GRADLE="gradle"
           fi
 
+          "$GRADLE" :app:bundleRelease \
+            --stacktrace \
+            --no-daemon
+
+          mkdir -p dist
+
+          AAB_PATH="$(find app/build/outputs/bundle/release \
+            -type f -name '*.aab' -print -quit || true)"
+
+          if [ -n "$AAB_PATH" ]; then
+            cp "$AAB_PATH" \
+              "dist/${{ github.event.repository.name }}-release.aab"
+
+            echo "Release AAB generated successfully."
+          else
+            echo "Release AAB was not generated."
+          fi
+
+      # 9. Verify output
+      - name: Verify build outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APK_COUNT="$(find dist -maxdepth 1 \
+            -type f -name '*-debug.apk' | wc -l)"
+
+          if [ "$APK_COUNT" -eq 0 ]; then
+            echo "::error::APK file is missing."
+            exit 1
+          fi
+
+          echo "Build outputs:"
+          ls -lh dist/
+
+      # 10. Upload APK
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
@@ -97,6 +219,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      # 11. Upload AAB
       - name: Upload Release AAB
         uses: actions/upload-artifact@v4
         continue-on-error: true
@@ -106,7 +229,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Create Release
+      # 12. Create GitHub Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
