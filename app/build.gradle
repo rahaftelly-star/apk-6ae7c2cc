@@ -7,7 +7,7 @@ android {
     compileSdk 35
 
     defaultConfig {
-        applicationId ".com.aeman.haker"
+        applicationId "com.aeman.haker"
         minSdk 21
         targetSdk 35
         versionCode 1
