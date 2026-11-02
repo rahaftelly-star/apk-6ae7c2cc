@@ -1,4 +1,4 @@
-package .com.aeman.haker;
+package com.aeman.haker;
 
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
