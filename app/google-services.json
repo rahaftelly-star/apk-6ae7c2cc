@@ -9,7 +9,7 @@
       "client_info": {
         "mobilesdk_app_id": "1:636630779971:android:9028ad5b0cd0d90c722cf6",
         "android_client_info": {
-          "package_name": ".com.aeman.haker"
+          "package_name": "com.aeman.haker"
         }
       },
       "oauth_client": [],
