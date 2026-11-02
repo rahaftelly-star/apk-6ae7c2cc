@@ -3,7 +3,7 @@ plugins{   id 'com.android.application'
 }
 
 android {
-    namespace com.aeman.haker
+    namespace "com.aeman.haker"
     compileSdk 35
 
     defaultConfig {
