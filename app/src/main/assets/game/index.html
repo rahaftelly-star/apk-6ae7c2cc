@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>أيمن بيك</title>
+  <style>
+    :root {
+      --bg: #0a1422;
+      --panel: rgba(18, 29, 45, 0.92);
+      --gold: #ffd166;
+      --text: #f3efe8;
+      --muted: #c7d1dd;
+      --green: #48d597;
+      --red: #eb5757;
+      --blue: #63c5ff;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; height: 100%; background: var(--bg); color: var(--text);
+      font-family: Tahoma, Arial, sans-serif; overflow: hidden;
+      touch-action: none;
+    }
+    body { display: flex; align-items: center; justify-content: center; }
+    #game {
+      width: 100vw; height: 100vh; display: block; background: linear-gradient(#7ca972, #5d7f52);
+      image-rendering: auto;
+    }
+    .ui {
+      position: fixed; inset: 0; pointer-events: none;
+    }
+    .panel {
+      position: absolute; background: var(--panel); border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 18px; padding: 20px 22px; box-shadow: 0 18px 42px rgba(0,0,0,0.35);
+      max-width: min(90vw, 620px);
+    }
+    .welcome {
+      left: 50%; top: 50%; transform: translate(-50%, -50%); text-align: center;
+    }
+    .title { font-size: clamp(2rem, 8vw, 4rem); color: var(--gold); margin: 0 0 8px; }
+    .subtitle { font-size: clamp(1rem, 3vw, 1.5rem); margin: 8px 0; }
+    .button-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-top: 18px; }
+    button {
+      pointer-events: auto; border: 1px solid rgba(255,255,255,0.25); border-radius: 14px;
+      background: #2b405e; color: var(--text); padding: 12px 18px; font-size: 1rem; font-weight: bold;
+    }
+    button.primary { background: #b97828; border-color: #ffd166; }
+    .hud {
+      position: absolute; top: 10px; left: 10px; right: 10px; display: flex; justify-content: space-between; align-items: flex-start;
+      gap: 10px;
+    }
+    .badge {
+      background: rgba(10,20,34,0.75); border: 1px solid rgba(255,255,255,0.18); border-radius: 12px;
+      padding: 8px 12px; font-size: 0.9rem;
+    }
+    .mini {
+      width: 150px; height: 110px; background: rgba(12,20,30,0.7); border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 12px; padding: 4px;
+    }
+    #toast {
+      position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%);
+      background: rgba(10,20,34,0.86); border: 1px solid rgba(255,255,255,0.18); border-radius: 12px;
+      padding: 10px 16px; opacity: 0; transition: opacity 0.2s ease; font-size: 0.9rem;
+    }
+    @media (max-width: 500px) {
+      .mini { width: 120px; height: 90px; }
+      .badge { font-size: 0.8rem; }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div class="ui">
+    <div id="welcomePanel" class="panel welcome">
+      <h1 class="title">أيمن بيك</h1>
+      <div class="subtitle">مرحباً بكم بلعبة أيمن بيك</div>
+      <div class="subtitle">مدينة دمشق مفتوحة، قصة أو لعب حر، قوى خارقة، طيران واسع.</div>
+      <div class="button-row">
+        <button class="primary" id="startBtn">ابدأ فوراً</button>
+        <button id="modeBtn">اختيار النمط</button>
+      </div>
+    </div>
+
+    <div id="modePanel" class="panel welcome" style="display:none;">
+      <div class="subtitle" style="font-size:1.8rem; color: var(--gold);">اختر نمط اللعب</div>
+      <div class="button-row">
+        <button class="primary" data-mode="story">وضع القصة</button>
+        <button data-mode="free">اللعب الحر</button>
+      </div>
+    </div>
+
+    <div id="storyPanel" class="panel welcome" style="display:none;">
+      <div class="subtitle" style="font-size:1.8rem; color: var(--gold);">بداية الحكاية</div>
+      <div class="subtitle">تطلق العصابة النار على رهف، فيصرخ البطل: «رهف!» ويبدأ طريق الانتقام.</div>
+      <div class="button-row">
+        <button class="primary" id="protectBtn">حماية المدنيين</button>
+        <button id="revengeBtn">الانتقام</button>
+      </div>
+    </div>
+
+    <div class="hud" id="hud" style="display:none;">
+      <div class="badge" id="statusText">مدينة دمشق</div>
+      <canvas class="mini" id="mini" width="150" height="110"></canvas>
+    </div>
+
+    <div id="toast">مرحباً</div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const mini = document.getElementById('mini');
+    const mctx = mini.getContext('2d');
+    const welcomePanel = document.getElementById('welcomePanel');
+    const modePanel = document.getElementById('modePanel');
+    const storyPanel = document.getElementById('storyPanel');
+    const hud = document.getElementById('hud');
+    const toast = document.getElementById('toast');
+    const statusText = document.getElementById('statusText');
+
+    const WORLD = { w: 3600, h: 2400 };
+    let started = false;
+    let mode = 'welcome';
+    let path = 'neutral';
+    let flying = false;
+    let score = 0;
+    let rescued = 0;
+    let last = 0;
+
+    const keys = new Set();
+    const player = { x: WORLD.w / 2, y: WORLD.h / 2, r: 16, speed: 230 };
+    const camera = { x: 0, y: 0 };
+    const buildings = [];
+    const civilians = [];
+    const gang = [];
+
+    function resize() {
+      canvas.width = window.innerWidth * window.devicePixelRatio;
+      canvas.height = window.innerHeight * window.devicePixelRatio;
+      ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    function showPanel(name) {
+      welcomePanel.style.display = name === 'welcome' ? 'block' : 'none';
+      modePanel.style.display = name === 'mode' ? 'block' : 'none';
+      storyPanel.style.display = name === 'story' ? 'block' : 'none';
+      hud.style.display = started ? 'flex' : 'none';
+    }
+
+    function toastMsg(msg) {
+      toast.textContent = msg;
+      toast.style.opacity = '1';
+      clearTimeout(toast._timer);
+      toast._timer = setTimeout(() => toast.style.opacity = '0', 1800);
+    }
+
+    function buildWorld() {
+      for (let y = 220; y < WORLD.h - 180; y += 240) {
+        for (let x = 220; x < WORLD.w - 180; x += 260) {
+          if (Math.abs(x - WORLD.w / 2) < 220 && Math.abs(y - WORLD.h / 2) < 180) continue;
+          buildings.push({ x, y, w: 120 + ((x * 7 + y) % 70), h: 100 + ((y * 5 + x) % 80), broken: false });
+        }
+      }
+      for (let i = 0; i < 30; i++) {
+        civilians.push({ x: 300 + Math.random() * (WORLD.w - 600), y: 300 + Math.random() * (WORLD.h - 600), saved: false, rahaf: false });
+      }
+      civilians.unshift({ x: WORLD.w / 2 + 110, y: WORLD.h / 2, saved: false, rahaf: true });
+      for (let i = 0; i < 18; i++) {
+        gang.push({ x: 350 + Math.random() * (WORLD.w - 700), y: 350 + Math.random() * (WORLD.h - 700), hp: 2, alive: true });
+      }
+      gang[0].x = WORLD.w / 2 + 220; gang[0].y = WORLD.h / 2;
+      gang[1].x = WORLD.w / 2 + 260; gang[1].y = WORLD.h / 2 + 40;
+    }
+
+    function nearestEnemy() {
+      let best = null; let distance = Infinity;
+      for (const e of gang) {
+        if (!e.alive) continue;
+        const d = Math.hypot(player.x - e.x, player.y - e.y);
+        if (d < distance) { distance = d; best = e; }
+      }
+      return distance < 180 ? best : null;
+    }
+
+    function nearestBuilding() {
+      let best = null; let distance = Infinity;
+      for (const b of buildings) {
+        if (b.broken) continue;
+        const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+        const d = Math.hypot(player.x - cx, player.y - cy);
+        if (d < distance) { distance = d; best = b; }
+      }
+      return distance < 190 ? best : null;
+    }
+
+    function attack(kind) {
+      if (!started) return;
+      if (kind === 'punch') {
+        const b = nearestBuilding();
+        if (!b) { toastMsg('اقترب من مبنى قبل استخدام القبضة.'); return; }
+        b.broken = true; score += 10; toastMsg('قبضة أيمن تحطمت المبنى!');
+        return;
+      }
+      const e = nearestEnemy();
+      if (!e) { toastMsg('لا يوجد خصم قريب.'); return; }
+      e.hp -= 1;
+      if (e.hp <= 0) {
+        e.alive = false; score += path === 'revenge' ? 15 : 5;
+        toastMsg(path === 'revenge' ? 'أوقفت عصابة في طريق الانتقام.' : 'تجاوزت تهديداً أمنياً.');
+      } else {
+        toastMsg(kind === 'laser' ? 'أطلق أيمن الليزر!' : 'اندفعت نار الفم!');
+      }
+    }
+
+    function interact() {
+      if (!started) return;
+      for (const c of civilians) {
+        if (c.saved) continue;
+        if (Math.hypot(player.x - c.x, player.y - c.y) < 65) {
+          c.saved = true; rescued += 1; score += 20;
+          toastMsg(c.rahaf ? 'تم إنقاذ رهف!' : 'تم إنقاذ مدني!');
+          return;
+        }
+      }
+      toastMsg('اقترب من رهف أو مدني قريب.');
+    }
+
+    function begin(modeName, storyPath) {
+      started = true;
+      mode = modeName;
+      path = storyPath || 'free';
+      showPanel('none');
+      hud.style.display = 'flex';
+      statusText.textContent = mode === 'story' ? (path === 'protector' ? 'حماية المدنيين' : 'الانتقام') : 'اللعب الحر';
+      toastMsg(mode === 'story' ? 'بدأت القصة في دمشق.' : 'بدأت الاستكشاف الحر.');
+    }
+
+    function handleKey(key, isDown) {
+      if (isDown) keys.add(key); else keys.delete(key);
+      if (!started) return;
+      if (key === 'f') { flying = !flying; toastMsg(flying ? 'بدأ الطيران فوق المدينة' : 'العودة إلى الشوارع'); }
+      if (key === '1') attack('laser');
+      if (key === '2') attack('fire');
+      if (key === '3') attack('punch');
+      if (key === 'e') interact();
+    }
+
+    document.getElementById('startBtn').onclick = () => begin('free', 'free');
+    document.getElementById('modeBtn').onclick = () => showPanel('mode');
+    document.querySelectorAll('[data-mode]').forEach(btn => {
+      btn.onclick = () => {
+        if (btn.dataset.mode === 'story') showPanel('story');
+        else begin('free', 'free');
+      };
+    });
+    document.getElementById('protectBtn').onclick = () => begin('story', 'protector');
+    document.getElementById('revengeBtn').onclick = () => begin('story', 'revenge');
+
+    document.addEventListener('keydown', (e) => handleKey((e.key || '').toLowerCase(), true));
+    document.addEventListener('keyup', (e) => handleKey((e.key || '').toLowerCase(), false));
+    canvas.addEventListener('pointerdown', () => { if (started) attack('laser'); });
+
+    function update(dt) {
+      if (!started) return;
+      let dx = 0, dy = 0;
+      if (keys.has('w') || keys.has('arrowup')) dy -= 1;
+      if (keys.has('s') || keys.has('arrowdown')) dy += 1;
+      if (keys.has('a') || keys.has('arrowleft')) dx -= 1;
+      if (keys.has('d') || keys.has('arrowright')) dx += 1;
+      if (dx || dy) {
+        const len = Math.hypot(dx, dy) || 1;
+        const sp = flying ? 310 : 230;
+        player.x += (dx / len) * sp * dt;
+        player.y += (dy / len) * sp * dt;
+      }
+      player.x = Math.max(30, Math.min(WORLD.w - 30, player.x));
+      player.y = Math.max(30, Math.min(WORLD.h - 30, player.y));
+
+      camera.x = Math.max(0, Math.min(WORLD.w - window.innerWidth, player.x - window.innerWidth / 2));
+      camera.y = Math.max(0, Math.min(WORLD.h - window.innerHeight, player.y - window.innerHeight / 2));
+
+      if (mode === 'story') {
+        statusText.textContent = path === 'protector'
+          ? `حماية المدنيين · ${rescued} إنقاذ · نقاط ${score}`
+          : `الانتقام · نقاط ${score}`;
+      } else {
+        statusText.textContent = `اللعب الحر · نقاط ${score}`;
+      }
+    }
+
+    function drawMini() {
+      mctx.clearRect(0, 0, mini.width, mini.height);
+      mctx.fillStyle = '#1a2a3e';
+      mctx.fillRect(0, 0, mini.width, mini.height);
+      const sx = mini.width / WORLD.w, sy = mini.height / WORLD.h;
+
+      for (const b of buildings) {
+        if (b.broken) continue;
+        mctx.fillStyle = '#98856f';
+        mctx.fillRect(b.x * sx, b.y * sy, b.w * sx, b.h * sy);
+      }
+      for (const c of civilians) {
+        if (c.saved) continue;
+        mctx.fillStyle = c.rahaf ? '#f7b5c7' : '#f3d97d';
+        mctx.fillRect(c.x * sx - 2, c.y * sy - 2, 4, 4);
+      }
+      for (const e of gang) {
+        if (e.alive) {
+          mctx.fillStyle = '#e05656';
+          mctx.fillRect(e.x * sx - 2, e.y * sy - 2, 4, 4);
+        }
+      }
+      mctx.fillStyle = '#58d0ff';
+      mctx.fillRect(player.x * sx - 4, player.y * sy - 4, 8, 8);
+    }
+
+    function draw() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = '#829b6e';
+      ctx.fillRect(0, 0, w, h);
+
+      ctx.save();
+      ctx.translate(-camera.x, -camera.y);
+      for (let x = 0; x < WORLD.w; x += 260) {
+        for (let y = 0; y < WORLD.h; y += 240) {
+          ctx.fillStyle = (x + y) % 400 === 0 ? '#c9b38b' : '#d7c9a1';
+          ctx.fillRect(x, y, 25, 25);
+        }
+      }
+
+      for (const b of buildings) {
+        if (b.broken) continue;
+        ctx.fillStyle = '#6f5849';
+        ctx.fillRect(b.x + 8, b.y + 8, b.w, b.h);
+        ctx.fillStyle = '#bfa07b';
+        ctx.fillRect(b.x, b.y, b.w, b.h);
+      }
+
+      for (const c of civilians) {
+        if (c.saved) continue;
+        ctx.fillStyle = c.rahaf ? '#ff8aa6' : '#ffe0a1';
+        ctx.beginPath(); ctx.arc(c.x, c.y, 12, 0, Math.PI * 2); ctx.fill();
+      }
+
+      for (const e of gang) {
+        if (!e.alive) continue;
+        ctx.fillStyle = '#b93d39';
+        ctx.beginPath(); ctx.arc(e.x, e.y, 12, 0, Math.PI * 2); ctx.fill();
+      }
+
+      ctx.fillStyle = '#5db7ff';
+      ctx.beginPath(); ctx.arc(player.x, player.y, player.r, 0, Math.PI * 2); ctx.fill();
+      if (flying) {
+        ctx.strokeStyle = 'rgba(125, 230, 255, 0.7)';
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(player.x, player.y, 26, 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.restore();
+
+      drawMini();
+    }
+
+    function loop(ts) {
+      const dt = Math.min(0.033, (ts - last || 16) / 1000);
+      last = ts;
+      update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    buildWorld();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
